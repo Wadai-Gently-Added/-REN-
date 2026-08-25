@@ -1,0 +1,124 @@
+﻿/* ============================================================
+ * 美文字練習帳 統合版 v3.2.0 (2026-08-24)
+ * ★修正: プレビュー領域の寸法計算を flex % から viewport-driven に変更
+ *   ページ幅 = (vw - サイドバー 280px - 余白) を JS が
+ *   inline style でセット → aspect-ratio で高さを連動計算
+ * ============================================================ */
+:root {
+  --cell-size: 34px;
+  --line-color: rgba(184,148,148,0.55);
+  --center-line: rgba(226,183,183,0.45);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;width:100%;height:100vh;background:#e8e8e8;font-family:sans-serif;overscroll-behavior:none}
+body{display:flex;position:relative}
+
+/* ===== サイドバー ===== */
+.sidebar{position:fixed;left:0;top:0;width:280px;height:100vh;background:#fff;padding:14px;box-sizing:border-box;display:flex;flex-direction:column;gap:11px;z-index:200;transition:transform .3s ease;box-shadow:4px 0 12px rgba(0,0,0,.1);overflow-y:auto}
+.sidebar.is-hidden{transform:translateX(-280px)}
+.toggle-btn{position:fixed;left:10px;top:10px;z-index:250;padding:6px 12px;font-size:11px;font-weight:bold;background:#ff6b8b;color:#fff;border:none;border-radius:20px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.2)}
+
+.config-row,.row{display:flex;flex-direction:column;gap:4px}
+.config-row label,.row label{font-weight:bold;font-size:12px;color:#333}
+
+.sidebar input[type=text],.sidebar select,.sidebar input[type=number],.sidebar textarea{width:100%;padding:7px;font-size:13px;box-sizing:border-box;border:1px solid #ddd;border-radius:6px}
+.sidebar textarea{resize:vertical;min-height:56px;font-family:inherit;line-height:1.4}
+.diam-ctrl{display:flex;align-items:center;gap:8px}
+.diam-ctrl input[type=range]{flex:1}
+.diam-ctrl input[type=number]{width:58px;text-align:center}
+
+.btn{padding:10px;background:#ff6b8b;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:bold;font-size:14px}
+.btn-print{background:#28a745;margin-top:4px}
+.btn:active{opacity:.85}
+
+.mode-shape-box{display:flex;flex-direction:column;gap:6px;background:#f7f8ff;padding:10px;border-radius:8px;border:1px solid #e3e9ff}
+.mode-shape-box .label{font-weight:bold;font-size:12px;color:#333;display:flex;flex-direction:column;gap:4px}
+.mode-shape-box select,.mode-shape-box input{width:100%;padding:7px;font-size:13px;box-sizing:border-box;border:1px solid #ddd;border-radius:6px}
+
+/* ★ .disabled グレーアウト（DOMは消さない・input は disabled 属性付きで操作不可） */
+.config-row.disabled,.row.disabled{opacity:.45;filter:grayscale(.9);}
+.config-row.disabled label,.row.disabled label{color:#888;font-weight:normal}
+.config-row.disabled input,.config-row.disabled select,.config-row.disabled textarea,.row.disabled input,.row.disabled select{cursor:not-allowed}
+
+/* ===== ⑧-② 練習回数設定 ===== */
+.repeat-grid{display:flex;flex-direction:column;gap:8px;margin-top:6px;padding-left:6px}
+.repeat-grid:not(.show){display:none}
+.repeat-card{display:flex;flex-direction:column;gap:2px;background:#fff;border:1px solid #ffd7e2;border-radius:10px;padding:10px;align-items:center}
+.repeat-card .rc-name{font-weight:bold;color:#ff6b8b;font-size:12.5px}
+.repeat-card .rc-sub{font-size:11px;color:#777}
+.repeat-card input[type=number]{width:60px;text-align:center;border:1px solid #ffd7e2;background:#fffafc;border-radius:6px;padding:6px}
+
+/* ===== プレビュー領域 ===== */
+.preview-area{
+  position:fixed;
+  left:280px;                       /* サイドバー分だけ右にずらす */
+  top:0; right:0; bottom:0;
+  background:#e8e8e8;
+  display:flex; justify-content:center; align-items:center;
+  padding:16px;
+  overflow:auto;
+  transition:left .3s ease;
+}
+.sidebar.is-hidden ~ .preview-area{left:0}
+
+/* ★ ページと円形SVGコンテナ共通の寸法スタイル
+   width/height は JS が描画直前に inline でセットする（後述）。
+   ここでは最小値・背景・印刷時寸法のみ担当。 */
+.page,.page-container{
+  background:#fff;
+  box-shadow:0 4px 15px rgba(0,0,0,.12);
+  position:relative;
+  flex-shrink:0;
+  width:auto; height:auto;        /* ← JS が上書きする */
+  min-width:200px;
+}
+
+/* マス目ページの中身は flex で配置 */
+.page{display:flex;flex-direction:column}
+.page.a4{aspect-ratio:210/297;padding:12mm 14mm 14mm}
+.page.landscape-a4{aspect-ratio:297/210;padding:12mm 14mm 14mm}
+.page.ippitsu{aspect-ratio:84/177;padding:8mm 6mm 10mm}
+
+/* 円形ページは SVG を fit */
+.page-container{aspect-ratio:210/297}
+.page-container .workspace-svg{width:100%;height:100%;display:block}
+
+.page-title{text-align:center;font-size:11px;font-weight:bold;margin-bottom:8px;color:#555;flex-shrink:0}
+.page.ippitsu .page-title{font-size:9px;margin-bottom:6px}
+.canvas-container{flex:1;display:flex;width:100%;height:100%;align-content:flex-start;overflow:hidden;position:relative}
+
+/* ===== マス目 ===== */
+.letter-section{display:flex;gap:14px;box-sizing:border-box;padding:6px;border-radius:6px;background:rgba(255,107,139,.02);border:1px dashed rgba(184,148,148,.3);flex-direction:var(--stage-dir)}
+.handwriting-package{display:flex;gap:4px;flex-direction:var(--section-dir)}
+.text-line{display:flex;gap:1px;flex-direction:var(--line-flow-dir)}
+
+.cell{width:var(--cell-size);height:var(--cell-size);border:1px solid #b89494;background:#fff;display:flex;align-items:center;justify-content:center;font-weight:bold;position:relative;flex-shrink:0;box-sizing:border-box;font-size:calc(var(--cell-size)*.53);font-family:'Hiragino Mincho ProN','Yu Mincho','MS Mincho',serif}
+.cell::before{content:'';position:absolute;left:0;right:0;top:50%;border-top:1px dashed #e2b7b7}
+.cell::after{content:'';position:absolute;top:0;bottom:0;left:50%;border-left:1px dashed #e2b7b7}
+.cell span{z-index:1;position:relative}
+.cell.model{background:#fff5f7;color:#333}
+.cell.trace{color:#ccc}
+.cell.blank{color:transparent}
+.cell.trace-vert::after{border-left:2px solid #d8b0b0}
+.cell.trace-none::before,.cell.trace-none::after{display:none}
+.cell.multi2{font-size:calc(var(--cell-size)*.42)}
+.cell.multi3{font-size:calc(var(--cell-size)*.34)}
+
+/* ===== 一筆箋 ===== */
+.ruled-paper{width:100%;height:100%;position:relative;box-sizing:border-box}
+.ruled-line{position:absolute;background:var(--line-color)}
+.ruled-center{position:absolute;background:var(--center-line)}
+.ruled-text{position:absolute;font-family:'Hiragino Mincho ProN','Yu Mincho','MS Mincho',serif;font-weight:bold;color:#333;white-space:nowrap;pointer-events:none}
+.ruled-text.trace{color:#bbb}
+.ruled-text.blank{color:transparent}
+
+@media print{
+  html,body{width:auto;height:auto;overflow:visible;display:block;background:#fff}
+  .no-print{display:none!important}
+  .preview-area{position:static;padding:0;height:auto;display:block;overflow:visible;left:0;right:0}
+  .page.a4{width:210mm!important;height:297mm!important;margin:0;box-shadow:none;padding:12mm 14mm 14mm}
+  .page.landscape-a4{width:297mm!important;height:210mm!important;margin:0;box-shadow:none;padding:12mm 14mm 14mm}
+  .page.ippitsu{width:84mm!important;height:177mm!important;margin:0 auto;box-shadow:none;padding:8mm 6mm 10mm}
+  .page-container{width:210mm!important;height:297mm!important;margin:0;box-shadow:none}
+  @page{margin:0;size:A4 portrait}
+}
