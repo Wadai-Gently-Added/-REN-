@@ -72,8 +72,11 @@ function renderRuledNote() {
     });
   }
 
+  // 下端に線が残らない・半端に出ないための安全マージン
+  const BOTTOM_SAFE = 3.5;
+
   function drawSolid(y, isAccent) {
-    if (y < contentTop - 0.5 || y > contentBottom + 0.5) return;
+    if (y < contentTop - 0.5 || y > contentBottom - BOTTOM_SAFE) return;
     const el = document.createElement('div');
     el.style.cssText =
       'position:absolute;left:' + Math.round(padX) + 'px;top:' + Math.round(y) + 'px;' +
@@ -84,7 +87,7 @@ function renderRuledNote() {
   }
 
   function drawDash(y) {
-    if (y < contentTop - 0.5 || y > contentBottom + 0.5) return;
+    if (y < contentTop - 0.5 || y > contentBottom - BOTTOM_SAFE) return;
     const el = document.createElement('div');
     el.style.cssText =
       'position:absolute;left:' + Math.round(padX) + 'px;top:' + Math.round(y) + 'px;' +
@@ -134,44 +137,40 @@ function renderRuledNote() {
   }
 
   // ========== 2本: A/B罫（主線＋中線）==========
-  // ★ 最終線は必ず主線（補助線で終わらない）。浮遊誤差で最終線が落ちるのを防ぐ。
+  // ★ 最終線は必ず主線。下端に半端線・補助線を絶対に残さない。
   if (isSimpleTwo) {
     const style = (typeof valueOf === 'function') ? valueOf('noteRuleStyle', 'A') : 'A';
-    // 横でも中線が「いっぱい」に見えないよう最小ギャップを大きめに
     let gapMin = style === 'B' ? (isLandscape ? 14 : 11) : (isLandscape ? 18 : 14);
     let gap = Math.max(gapMin, Math.min(style === 'B' ? 16 : 22, h * (style === 'B' ? 0.022 : 0.03)));
 
-    let lineCount = Math.max(2, Math.floor(usableH / gap) + 1);
-    // 最終線が contentBottom を超えない本数に制限
-    while (lineCount > 2 && (lineCount - 1) * gap > usableH) lineCount--;
-    if (lineCount > 1) gap = usableH / (lineCount - 1);
+    // 下端セーフマージンを除いた高さで計算
+    const safeH = Math.max(40, usableH - BOTTOM_SAFE);
+    let lineCount = Math.max(2, Math.floor(safeH / gap) + 1);
+    while (lineCount > 2 && (lineCount - 1) * gap > safeH) lineCount--;
+    if (lineCount > 1) gap = safeH / (lineCount - 1);
     if (gap < gapMin) {
       gap = gapMin;
-      lineCount = Math.max(2, Math.floor(usableH / gap) + 1);
-      // 再計算後も収まる本数に落とす
-      while (lineCount > 2 && (lineCount - 1) * gap > usableH + 0.5) lineCount--;
+      lineCount = Math.max(2, Math.floor(safeH / gap) + 1);
+      while (lineCount > 2 && (lineCount - 1) * gap > safeH) lineCount--;
     }
-    // 上端に少し余白を残しつつ、最終線を contentBottom に正確に合わせる
+
     const totalH = (lineCount - 1) * gap;
-    let y0 = contentTop + Math.max(0, (usableH - totalH) * 0.05);
-    // 最終線が contentBottom をわずかに超えないようクランプ
-    const lastY = y0 + (lineCount - 1) * gap;
-    if (lastY > contentBottom) {
-      y0 = Math.max(contentTop, contentBottom - (lineCount - 1) * gap);
+    let y0 = contentTop + Math.max(0, (safeH - totalH) * 0.04);
+    // 最終線がセーフゾーンを超えないよう再クランプ
+    if (y0 + (lineCount - 1) * gap > contentBottom - BOTTOM_SAFE) {
+      y0 = Math.max(contentTop, contentBottom - BOTTOM_SAFE - (lineCount - 1) * gap);
     }
 
     const baselines = [];
     for (let i = 0; i < lineCount; i++) {
       const y = y0 + i * gap;
-      // 最終線は必ず描く（誤差で落ちない）。途中線のみ安全チェック
-      if (i < lineCount - 1 && y > contentBottom + 0.5) break;
-      const yClamped = Math.min(y, contentBottom);
-      drawSolid(yClamped, false);
-      baselines.push(yClamped);
-      // 隣の主線との間に中線（補助線）1本。最終線の後には絶対に引かない
+      if (y > contentBottom - BOTTOM_SAFE) break; // 半端線を絶対に出さない
+      drawSolid(y, false);
+      baselines.push(y);
+      // 最終線の後ろには補助線を引かない
       if (i < lineCount - 1) {
-        const mid = yClamped + gap * 0.5;
-        if (mid < contentBottom - 0.5) drawDash(mid);
+        const mid = y + gap * 0.5;
+        if (mid < contentBottom - BOTTOM_SAFE - 1) drawDash(mid);
       }
     }
 
@@ -191,6 +190,7 @@ function renderRuledNote() {
   }
 
   // ========== 3〜5本: まとまり方式 ==========
+  // ★ 完結した組だけ。下端に半端な線・孤立線を絶対に出さない。
   let innerGap = Math.max(5, Math.min(9, fontPx * 0.3));
   const betweenMin = Math.max(innerGap * 2.2, fontPx * 1.0, isLandscape ? 18 : 16);
   let groupHeight = innerGap * (linesPerGroup - 1);
@@ -201,6 +201,8 @@ function renderRuledNote() {
     groupHeight = innerGap * (linesPerGroup - 1);
   }
 
+  const safeH = Math.max(40, usableH - BOTTOM_SAFE);
+
   // 完結した組だけ（groupHeight 分が収まる数）
   let groupCount = 0;
   let between = betweenMin;
@@ -208,7 +210,7 @@ function renderRuledNote() {
     let used = 0;
     while (true) {
       const need = (groupCount === 0) ? groupHeight : (betweenMin + groupHeight);
-      if (used + need > usableH + 0.01) break;
+      if (used + need > safeH + 0.01) break;
       used += need;
       groupCount++;
       if (groupCount > 40) break;
@@ -217,63 +219,52 @@ function renderRuledNote() {
   }
 
   if (groupCount > 1) {
-    between = (usableH - groupCount * groupHeight) / (groupCount - 1);
-    // 広げた結果、最終線がはみ出す／組間が狭すぎるなら組を減らす
+    between = (safeH - groupCount * groupHeight) / (groupCount - 1);
     while (groupCount > 1) {
-      between = (usableH - groupCount * groupHeight) / (groupCount - 1);
+      between = (safeH - groupCount * groupHeight) / (groupCount - 1);
       const th = groupCount * groupHeight + (groupCount - 1) * between;
-      if (between >= betweenMin * 0.85 && th <= usableH + 0.5) break;
+      if (between >= betweenMin * 0.85 && th <= safeH + 0.5) break;
       groupCount--;
     }
     between = groupCount > 1
-      ? (usableH - groupCount * groupHeight) / (groupCount - 1)
+      ? (safeH - groupCount * groupHeight) / (groupCount - 1)
       : betweenMin;
   }
 
   const totalH2 = groupCount * groupHeight + Math.max(0, groupCount - 1) * between;
-  let yBase = contentTop + Math.max(0, (usableH - totalH2) * 0.06);
+  let yBase = contentTop + Math.max(0, (safeH - totalH2) * 0.05);
 
-  // 最終組の最終線が contentBottom を超えないことを保証
+  // 最終組の最終線がセーフゾーンを超えないことを保証
   while (groupCount >= 1) {
-    const lastLine = yBase + (groupCount - 1) * (groupHeight + between) + groupHeight;
-    if (lastLine <= contentBottom + 0.5) break;
+    const lastLine = yBase + (groupCount - 1) * (groupHeight + between) + (linesPerGroup - 1) * innerGap;
+    if (lastLine <= contentBottom - BOTTOM_SAFE) break;
     if (groupCount === 1) {
-      yBase = Math.max(contentTop, contentBottom - groupHeight);
+      yBase = Math.max(contentTop, contentBottom - BOTTOM_SAFE - (linesPerGroup - 1) * innerGap);
       break;
     }
     groupCount--;
     between = groupCount > 1
-      ? (usableH - groupCount * groupHeight) / (groupCount - 1)
+      ? (safeH - groupCount * groupHeight) / (groupCount - 1)
       : betweenMin;
     const th = groupCount * groupHeight + Math.max(0, groupCount - 1) * between;
-    yBase = contentTop + Math.max(0, (usableH - th) * 0.06);
+    yBase = contentTop + Math.max(0, (safeH - th) * 0.05);
   }
 
-  // ★ 組の外側には線を一切引かない（下端の孤立1本を防ぐ）
-  // ★ 最終線は必ず主線。補助線でページが終わらない。浮遊誤差で最終線が落ちないようクランプ。
   let colorFromBottom = Math.max(0, Math.min(linesPerGroup, (st.note && st.note.colorLineNo) || 0));
   const groupTops = [];
   for (let g = 0; g < groupCount; g++) {
     let groupTop = yBase + g * (groupHeight + between);
-    // 最終組の最終線が contentBottom を超えないよう微調整
     const groupLast = groupTop + (linesPerGroup - 1) * innerGap;
-    if (groupLast > contentBottom + 0.5) {
-      groupTop = Math.max(contentTop, contentBottom - (linesPerGroup - 1) * innerGap);
+    if (groupLast > contentBottom - BOTTOM_SAFE) {
+      groupTop = Math.max(contentTop, contentBottom - BOTTOM_SAFE - (linesPerGroup - 1) * innerGap);
     }
     groupTops.push(groupTop);
     for (let i = 0; i < linesPerGroup; i++) {
       const y = groupTop + i * innerGap;
-      const yClamped = Math.min(y, contentBottom);
-      // 最終組の最終線は必ず描く
-      if (g === groupCount - 1 && i === linesPerGroup - 1) {
-        const fromBottom = 1;
-        const isAccent = colorFromBottom > 0 && fromBottom === colorFromBottom;
-        drawSolid(yClamped, isAccent);
-      } else if (y <= contentBottom + 0.5) {
-        const fromBottom = linesPerGroup - i;
-        const isAccent = colorFromBottom > 0 && fromBottom === colorFromBottom;
-        drawSolid(yClamped, isAccent);
-      }
+      if (y > contentBottom - BOTTOM_SAFE) break; // 半端線を絶対に出さない
+      const fromBottom = linesPerGroup - i;
+      const isAccent = colorFromBottom > 0 && fromBottom === colorFromBottom;
+      drawSolid(y, isAccent);
     }
   }
 
