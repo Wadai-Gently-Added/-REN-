@@ -86,7 +86,10 @@ body{display:flex;position:relative}
 .page.a4{aspect-ratio:210/297;padding:12mm 14mm 14mm}
 .page.landscape-a4{aspect-ratio:297/210;padding:12mm 14mm 14mm}
 .page.ippitsu{aspect-ratio:210/297;padding:8mm 8mm 10mm}
-.page.note-ruled{aspect-ratio:210/297;padding:8mm 6mm 10mm}
+/* note-ruled は向きに応じて aspect-ratio を変える */
+.page.note-ruled{padding:8mm 6mm 10mm}
+.page.note-ruled.a4{aspect-ratio:210/297}
+.page.note-ruled.landscape-a4{aspect-ratio:297/210}
 
 /* 円形ページは SVG を fit */
 .page-container{aspect-ratio:210/297}
@@ -195,9 +198,10 @@ body{display:flex;position:relative}
   .page.a4{width:210mm!important;height:297mm!important;margin:0;box-shadow:none;padding:12mm 14mm 14mm}
   .page.landscape-a4{width:297mm!important;height:210mm!important;margin:0;box-shadow:none;padding:12mm 14mm 14mm}
   .page.ippitsu{width:210mm!important;height:297mm!important;margin:0;box-shadow:none;padding:8mm 8mm 10mm}
-  .page.note-ruled{width:210mm!important;height:297mm!important;margin:0;box-shadow:none;padding:8mm 6mm 10mm}
+  .page.note-ruled.a4{width:210mm!important;height:297mm!important;margin:0;box-shadow:none;padding:8mm 6mm 10mm}
+  .page.note-ruled.landscape-a4{width:297mm!important;height:210mm!important;margin:0;box-shadow:none;padding:8mm 6mm 10mm}
   .page-container{width:210mm!important;height:297mm!important;margin:0;box-shadow:none}
-  @page{margin:0;size:A4 portrait}
+  @page{margin:0;size:A4}
 }
 
 /* 一筆箋の連続補助線 */

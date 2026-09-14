@@ -56,22 +56,31 @@ function renderLetter() {
   if (!types.length) types = ['blackSample', 'grayFull', 'blank'];
 
   // ============================================================
-  // 列幅 = 基本固定（文字サイズ非依存）
+  // 列幅 = 基本固定（文字サイズ非依存）だが、練習列が多いときは少し詰めて最大限入れる
   // ============================================================
   const BASE_REF_W = 520;
   const BASE_COL_W = 34;
   let colW = BASE_COL_W * (width / BASE_REF_W);
-  colW = Math.max(26, Math.min(44, colW));
+  colW = Math.max(24, Math.min(44, colW)); // 下限を少し下げて列数を稼ぎやすく
+
+  // 希望列数が入らない場合は、列幅を下げてできるだけ収める（極端に小さくはしない）
+  let desiredCols = types.length;
+  let maxFit = Math.max(1, Math.floor(usableW / colW));
+  if (desiredCols > maxFit && desiredCols > 0) {
+    const tighter = usableW / desiredCols;
+    if (tighter >= 22) { // 22px未満は読みにくくなるので下限
+      colW = Math.max(22, Math.min(colW, tighter));
+      maxFit = Math.max(1, Math.floor(usableW / colW));
+    }
+  }
 
   // 列幅に収まる実効フォント（はみ出し防止）
-  // 推奨帯: 列幅の約 0.55〜0.78 倍（見た目の「ちょうどいい」）
   const FIT_MAX = colW * 0.78;
   const fontPx = Math.min(fontPxRaw, FIT_MAX);
 
-  const maxFit = Math.max(1, Math.floor(usableW / colW));
-
   let practiceCols = types.length;
   if (practiceCols > maxFit) {
+    // 入りきらない分は今は切り捨て（将来：次ページへ送る）
     const nonBlank = types.filter(t => t !== 'blank');
     const blanks = types.filter(t => t === 'blank');
     if (nonBlank.length >= maxFit) {
