@@ -134,7 +134,6 @@ function renderRuledNote() {
   }
 
   // ========== 2本: A/B罫（主線＋中線）==========
-  // ★ 最終線は必ず主線（補助線で終わらない）。浮遊誤差で最終線が落ちるのを防ぐ。
   if (isSimpleTwo) {
     const style = (typeof valueOf === 'function') ? valueOf('noteRuleStyle', 'A') : 'A';
     // 横でも中線が「いっぱい」に見えないよう最小ギャップを大きめに
@@ -148,30 +147,20 @@ function renderRuledNote() {
     if (gap < gapMin) {
       gap = gapMin;
       lineCount = Math.max(2, Math.floor(usableH / gap) + 1);
-      // 再計算後も収まる本数に落とす
-      while (lineCount > 2 && (lineCount - 1) * gap > usableH + 0.5) lineCount--;
     }
-    // 上端に少し余白を残しつつ、最終線を contentBottom に正確に合わせる
     const totalH = (lineCount - 1) * gap;
-    let y0 = contentTop + Math.max(0, (usableH - totalH) * 0.05);
-    // 最終線が contentBottom をわずかに超えないようクランプ
-    const lastY = y0 + (lineCount - 1) * gap;
-    if (lastY > contentBottom) {
-      y0 = Math.max(contentTop, contentBottom - (lineCount - 1) * gap);
-    }
+    const y0 = contentTop + Math.max(0, (usableH - totalH) * 0.05);
 
     const baselines = [];
     for (let i = 0; i < lineCount; i++) {
       const y = y0 + i * gap;
-      // 最終線は必ず描く（誤差で落ちない）。途中線のみ安全チェック
-      if (i < lineCount - 1 && y > contentBottom + 0.5) break;
-      const yClamped = Math.min(y, contentBottom);
-      drawSolid(yClamped, false);
-      baselines.push(yClamped);
-      // 隣の主線との間に中線（補助線）1本。最終線の後には絶対に引かない
+      if (y > contentBottom + 0.5) break;
+      drawSolid(y, false);
+      baselines.push(y);
+      // 隣の主線との間に中線（補助線）1本
       if (i < lineCount - 1) {
-        const mid = yClamped + gap * 0.5;
-        if (mid < contentBottom - 0.5) drawDash(mid);
+        const mid = y + gap * 0.5;
+        if (mid <= contentBottom + 0.5) drawDash(mid);
       }
     }
 
@@ -250,30 +239,15 @@ function renderRuledNote() {
   }
 
   // ★ 組の外側には線を一切引かない（下端の孤立1本を防ぐ）
-  // ★ 最終線は必ず主線。補助線でページが終わらない。浮遊誤差で最終線が落ちないようクランプ。
   let colorFromBottom = Math.max(0, Math.min(linesPerGroup, (st.note && st.note.colorLineNo) || 0));
   const groupTops = [];
   for (let g = 0; g < groupCount; g++) {
-    let groupTop = yBase + g * (groupHeight + between);
-    // 最終組の最終線が contentBottom を超えないよう微調整
-    const groupLast = groupTop + (linesPerGroup - 1) * innerGap;
-    if (groupLast > contentBottom + 0.5) {
-      groupTop = Math.max(contentTop, contentBottom - (linesPerGroup - 1) * innerGap);
-    }
+    const groupTop = yBase + g * (groupHeight + between);
     groupTops.push(groupTop);
     for (let i = 0; i < linesPerGroup; i++) {
-      const y = groupTop + i * innerGap;
-      const yClamped = Math.min(y, contentBottom);
-      // 最終組の最終線は必ず描く
-      if (g === groupCount - 1 && i === linesPerGroup - 1) {
-        const fromBottom = 1;
-        const isAccent = colorFromBottom > 0 && fromBottom === colorFromBottom;
-        drawSolid(yClamped, isAccent);
-      } else if (y <= contentBottom + 0.5) {
-        const fromBottom = linesPerGroup - i;
-        const isAccent = colorFromBottom > 0 && fromBottom === colorFromBottom;
-        drawSolid(yClamped, isAccent);
-      }
+      const fromBottom = linesPerGroup - i;
+      const isAccent = colorFromBottom > 0 && fromBottom === colorFromBottom;
+      drawSolid(groupTop + i * innerGap, isAccent);
     }
   }
 
