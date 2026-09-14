@@ -1,10 +1,8 @@
 /*
- * 罫線ノート（横書き固定）
- * - 改行→別行 / スペース→個数分
- * - 長い行は折り返し（実測幅で厳密に）
- * - まとまりは完結した組だけ（下端の孤立1本を出さない）
- * - A/B罫は主線＋行間の中線。最終線は必ず主線
- * - v3.5.23: 下端線・はみ出しを根本修正
+ * 罫線ノート（横書き固定） v3.5.24
+ * - 下端に余分な線を絶対に出さない（SAFE_BOTTOM 厳守）
+ * - 縦向きの方が行数が多くなるよう高さ計算を明確化
+ * - 文字幅は canvas.measureText で実測
  */
 function notePracticeFont() {
   return window.__practiceFontFamily || "'Yu Mincho', 'Hiragino Mincho ProN', 'MS Mincho', serif";
@@ -40,25 +38,29 @@ function renderRuledNote() {
   area.style.cssText = 'width:100%;height:100%;position:relative;overflow:hidden;background:#fff;';
   canvas.appendChild(area);
 
+  // ページ実寸を取得（fitPageToViewport 後の値を使う）
   let w = paper ? (paper.clientWidth || 0) : 0;
   let h = paper ? (paper.clientHeight || 0) : 0;
   if (w < 10) w = area.clientWidth || 520;
   if (h < 10) h = area.clientHeight || 720;
 
+  const isLandscape = (st.orientation === 'landscape');
   const padX = Math.max(6, w * 0.015);
-  const padY = Math.max(8, h * 0.022);
-  const titleReserve = 16;
+  const padY = Math.max(10, h * 0.025);          // 上下余白を少し多めに
+  const titleReserve = 18;
   const usableW = Math.max(100, w - padX * 2);
-  const contentTop = padY + titleReserve * 0.4;
+  const contentTop = padY + titleReserve * 0.5;
   const contentBottom = h - padY;
-  const usableH = Math.max(80, contentBottom - contentTop);
+
+  // ★ 下端セーフゾーン：ここより下には線を1本も引かない
+  const SAFE_BOTTOM = contentBottom - 18;        // 18px の余白を強制
+  const usableH = Math.max(60, SAFE_BOTTOM - contentTop);
 
   const linesPerGroup = Math.max(2, Math.min(5, n));
   const isSimpleTwo = (linesPerGroup === 2);
   const fontPx = Math.max(12, Math.min(36, st.fontSizePx || 24));
   const LINE_W = 0.9;
   const colorLine = (st.note && st.note.colorLine) || 'var(--note-accent, #c45c6a)';
-  const isLandscape = (st.orientation === 'landscape');
 
   const textLines = noteTextLines();
   let types = (typeof getTypes === 'function') ? getTypes().slice() : ['blackSample', 'grayFull', 'blank'];
@@ -72,9 +74,6 @@ function renderRuledNote() {
       });
     });
   }
-
-  // ★ 下端セーフゾーン（ここより下には一切線を引かない）
-  const SAFE_BOTTOM = contentBottom - 12;
 
   function drawSolid(y, isAccent) {
     if (y < contentTop - 0.5 || y > SAFE_BOTTOM) return false;
@@ -99,7 +98,7 @@ function renderRuledNote() {
     return true;
   }
 
-  // 実測で文字幅を取る
+  // 実測文字幅
   const measureCanvas = document.createElement('canvas');
   const measureCtx = measureCanvas.getContext('2d');
   function measureUnitWidth(unit, fs) {
@@ -140,17 +139,17 @@ function renderRuledNote() {
   // ========== 2本: A/B罫 ==========
   if (isSimpleTwo) {
     const style = (typeof valueOf === 'function') ? valueOf('noteRuleStyle', 'A') : 'A';
-    let gapMin = style === 'B' ? (isLandscape ? 13 : 11) : (isLandscape ? 17 : 14);
-    let gap = Math.max(gapMin, Math.min(style === 'B' ? 15 : 20, h * (style === 'B' ? 0.02 : 0.028)));
+    // 縦向きの方が間隔を少し広めに取れるように
+    let gapMin = style === 'B' ? (isLandscape ? 12 : 13) : (isLandscape ? 15 : 16);
+    let gap = Math.max(gapMin, Math.min(style === 'B' ? 14 : 19, usableH * (style === 'B' ? 0.028 : 0.035)));
 
-    const availH = SAFE_BOTTOM - contentTop;
-    let lineCount = Math.max(2, Math.floor(availH / gap) + 1);
-    while (lineCount > 2 && (lineCount - 1) * gap > availH) lineCount--;
-    if (lineCount > 1) gap = availH / (lineCount - 1);
+    let lineCount = Math.max(2, Math.floor(usableH / gap) + 1);
+    while (lineCount > 2 && (lineCount - 1) * gap > usableH) lineCount--;
+    if (lineCount > 1) gap = usableH / (lineCount - 1);
     if (gap < gapMin) {
       gap = gapMin;
-      lineCount = Math.max(2, Math.floor(availH / gap) + 1);
-      while (lineCount > 2 && (lineCount - 1) * gap > availH) lineCount--;
+      lineCount = Math.max(2, Math.floor(usableH / gap) + 1);
+      while (lineCount > 2 && (lineCount - 1) * gap > usableH) lineCount--;
     }
 
     // 主線の y を確定（SAFE_BOTTOM を超えないものだけ）
@@ -161,16 +160,14 @@ function renderRuledNote() {
       mains.push(y);
     }
 
-    // 主線を描画
     mains.forEach(y => drawSolid(y, false));
 
-    // 破線は主線と主線の「間」にだけ
+    // 破線は主線の間だけ
     for (let i = 0; i < mains.length - 1; i++) {
       const mid = (mains[i] + mains[i + 1]) / 2;
       if (mid <= SAFE_BOTTOM) drawDash(mid);
     }
 
-    // 文字配置（上から2本目以降を使う）
     if (practiceRows.length && mains.length >= 2) {
       let bi = 1;
       for (let r = 0; r < practiceRows.length && bi < mains.length; r++) {
@@ -187,37 +184,37 @@ function renderRuledNote() {
   }
 
   // ========== 3〜5本: まとまり方式 ==========
-  let innerGap = Math.max(5, Math.min(9, fontPx * 0.28));
-  const betweenMin = Math.max(innerGap * 2.0, fontPx * 0.95, isLandscape ? 16 : 14);
+  // 縦向きの方が組数が多くなるよう、間隔を向きで調整
+  let innerGap = Math.max(5, Math.min(8, fontPx * 0.27));
+  const betweenMin = Math.max(innerGap * 1.9, fontPx * 0.9, isLandscape ? 15 : 13);
   let groupHeight = innerGap * (linesPerGroup - 1);
 
-  if (groupHeight < fontPx * 1.0) {
-    innerGap = Math.max(innerGap, (fontPx * 1.0) / Math.max(1, linesPerGroup - 1));
+  if (groupHeight < fontPx * 0.95) {
+    innerGap = Math.max(innerGap, (fontPx * 0.95) / Math.max(1, linesPerGroup - 1));
     groupHeight = innerGap * (linesPerGroup - 1);
   }
 
-  const availH = SAFE_BOTTOM - contentTop;
-
-  // 完結した組だけ数える
+  // 完結した組だけ数える（usableH の中に収まる数）
   let groupCount = 0;
   {
     let used = 0;
     while (true) {
       const need = (groupCount === 0) ? groupHeight : (betweenMin + groupHeight);
-      if (used + need > availH) break;
+      if (used + need > usableH) break;
       used += need;
       groupCount++;
-      if (groupCount > 30) break;
+      if (groupCount > 25) break;
     }
   }
   groupCount = Math.max(1, groupCount);
 
   let between = betweenMin;
   if (groupCount > 1) {
-    between = (availH - groupCount * groupHeight) / (groupCount - 1);
-    while (groupCount > 1 && between < betweenMin * 0.9) {
+    between = (usableH - groupCount * groupHeight) / (groupCount - 1);
+    // 間隔が狭くなりすぎたら組を減らす
+    while (groupCount > 1 && between < betweenMin * 0.92) {
       groupCount--;
-      between = groupCount > 1 ? (availH - groupCount * groupHeight) / (groupCount - 1) : betweenMin;
+      between = groupCount > 1 ? (usableH - groupCount * groupHeight) / (groupCount - 1) : betweenMin;
     }
   }
 
@@ -227,7 +224,7 @@ function renderRuledNote() {
     if (lastY <= SAFE_BOTTOM) break;
     groupCount--;
     if (groupCount > 1) {
-      between = (availH - groupCount * groupHeight) / (groupCount - 1);
+      between = (usableH - groupCount * groupHeight) / (groupCount - 1);
     }
   }
   groupCount = Math.max(1, groupCount);
@@ -238,7 +235,7 @@ function renderRuledNote() {
   for (let g = 0; g < groupCount; g++) {
     const groupTop = contentTop + g * (groupHeight + between);
     const groupLast = groupTop + (linesPerGroup - 1) * innerGap;
-    if (groupLast > SAFE_BOTTOM) break; // この組は描かない
+    if (groupLast > SAFE_BOTTOM) break;   // この組は描かない
 
     groupTops.push(groupTop);
     for (let i = 0; i < linesPerGroup; i++) {
