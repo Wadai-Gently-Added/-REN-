@@ -1,9 +1,10 @@
 /*
  * 罫線ノート（横書き固定）
  * - 改行→別行 / スペース→個数分
- * - 長い行は折り返し
+ * - 長い行は折り返し（実測幅で厳密に）
  * - まとまりは完結した組だけ（下端の孤立1本を出さない）
- * - A/B罫は主線＋行間の中線（補助線）。横でも詰めすぎない
+ * - A/B罫は主線＋行間の中線。最終線は必ず主線
+ * - v3.5.23: 下端線・はみ出しを根本修正
  */
 function notePracticeFont() {
   return window.__practiceFontFamily || "'Yu Mincho', 'Hiragino Mincho ProN', 'MS Mincho', serif";
@@ -44,11 +45,11 @@ function renderRuledNote() {
   if (w < 10) w = area.clientWidth || 520;
   if (h < 10) h = area.clientHeight || 720;
 
-  const padX = Math.max(4, w * 0.012);
-  const padY = Math.max(6, h * 0.02);
-  const titleReserve = 18;
+  const padX = Math.max(6, w * 0.015);
+  const padY = Math.max(8, h * 0.022);
+  const titleReserve = 16;
   const usableW = Math.max(100, w - padX * 2);
-  const contentTop = padY + titleReserve * 0.35;
+  const contentTop = padY + titleReserve * 0.4;
   const contentBottom = h - padY;
   const usableH = Math.max(80, contentBottom - contentTop);
 
@@ -72,11 +73,11 @@ function renderRuledNote() {
     });
   }
 
-  // 下端に線が残らない・半端に出ないための安全マージン
-  const BOTTOM_SAFE = 5;
+  // ★ 下端セーフゾーン（ここより下には一切線を引かない）
+  const SAFE_BOTTOM = contentBottom - 12;
 
   function drawSolid(y, isAccent) {
-    if (y < contentTop - 0.5 || y > contentBottom - BOTTOM_SAFE) return;
+    if (y < contentTop - 0.5 || y > SAFE_BOTTOM) return false;
     const el = document.createElement('div');
     el.style.cssText =
       'position:absolute;left:' + Math.round(padX) + 'px;top:' + Math.round(y) + 'px;' +
@@ -84,77 +85,50 @@ function renderRuledNote() {
       'background:' + (isAccent ? colorLine : 'var(--line-main, rgba(184,148,148,0.62))') + ';' +
       'pointer-events:none;';
     area.appendChild(el);
+    return true;
   }
 
   function drawDash(y) {
-    if (y < contentTop - 0.5 || y > contentBottom - BOTTOM_SAFE) return;
+    if (y < contentTop - 0.5 || y > SAFE_BOTTOM) return false;
     const el = document.createElement('div');
     el.style.cssText =
       'position:absolute;left:' + Math.round(padX) + 'px;top:' + Math.round(y) + 'px;' +
       'width:' + Math.round(usableW) + 'px;height:0;' +
       'border-top:1px dashed rgba(184,148,148,0.3);pointer-events:none;';
     area.appendChild(el);
+    return true;
   }
 
-  function isCjk(ch) {
-    if (!ch || ch.length === 0) return false;
-    const code = ch.codePointAt(0);
-    // CJK Unified + common fullwidth / kana
-    return (code >= 0x3000 && code <= 0x9FFF) ||
-           (code >= 0xF900 && code <= 0xFAFF) ||
-           (code >= 0xFF00 && code <= 0xFFEF);
-  }
-
-  function unitWidth(unit, fs) {
-    if (unit === ' ') return { localFs: fs, pitch: Math.max(fs * 0.4, 4), isSpace: true };
-    let localFs = fs;
-    if (unit.length >= 3) localFs = fs * 0.55;
-    else if (unit.length === 2) localFs = fs * 0.72;
-
-    // 文字種でピッチを変える（はみ出し防止の要）
-    let pitch;
-    if (unit.length === 1) {
-      if (isCjk(unit)) {
-        pitch = localFs * 1.05;          // 全角はほぼ正方形
-      } else {
-        // 半角英数・記号は狭め。少し余裕を持たせる
-        pitch = Math.max(localFs * 0.62, localFs * 0.55 + 1);
-      }
-    } else {
-      // 複数文字の塊（""で囲んだもの）
-      let total = 0;
-      for (const ch of unit) {
-        total += isCjk(ch) ? localFs * 1.0 : localFs * 0.58;
-      }
-      pitch = total * 1.02;
-    }
-    return { localFs, pitch, isSpace: false };
+  // 実測で文字幅を取る
+  const measureCanvas = document.createElement('canvas');
+  const measureCtx = measureCanvas.getContext('2d');
+  function measureUnitWidth(unit, fs) {
+    if (unit === ' ') return Math.max(fs * 0.35, 4);
+    measureCtx.font = 'bold ' + fs + 'px ' + notePracticeFont();
+    return Math.ceil(measureCtx.measureText(unit).width + 1.5);
   }
 
   function drawTextOnBaseline(lineY, maxAscent, type, units) {
-    if (!units || !units.length) return [];
-    if (type === 'blank') return [];
+    if (!units || !units.length || type === 'blank') return [];
     const isModel = (type === 'blackSample');
     const color = isModel ? '#333' : 'rgba(170,170,170,0.92)';
     const fs = Math.min(fontPx, Math.max(11, maxAscent * 0.85));
-    let x = padX + 2;
-    const rightLimit = padX + usableW - 4; // 右端に少し余裕
+    let x = padX + 3;
+    const rightLimit = padX + usableW - 8;
     let i = 0;
     for (; i < units.length; i++) {
       const unit = units[i];
-      const { localFs, pitch, isSpace } = unitWidth(unit, fs);
-      // 1文字目でもはみ出すなら置かない（長い塊対策）
+      const pitch = measureUnitWidth(unit, fs);
       if (x + pitch > rightLimit) break;
-      if (!isSpace) {
-        const ascent = localFs * 0.78;
-        const desc = localFs * 0.32;
+      if (unit !== ' ') {
+        const ascent = fs * 0.78;
         const span = document.createElement('div');
         span.textContent = unit;
         span.style.cssText =
           'position:absolute;left:' + Math.round(x) + 'px;top:' + Math.round(lineY - ascent) + 'px;' +
-          'height:' + Math.round(ascent + desc) + 'px;' +
+          'height:' + Math.round(fs * 1.1) + 'px;' +
           'display:flex;align-items:flex-start;justify-content:center;' +
-          'font-family:' + notePracticeFont() + ';font-weight:bold;font-size:' + localFs + 'px;' +
+          'font-family:' + notePracticeFont() + ';font-weight:bold;font-size:' + fs + 'px;' +
           'color:' + color + ';line-height:1;pointer-events:none;white-space:nowrap;overflow:hidden;';
         area.appendChild(span);
       }
@@ -163,55 +137,48 @@ function renderRuledNote() {
     return units.slice(i);
   }
 
-  // ========== 2本: A/B罫（主線＋中線）==========
-  // ★ 最終線は必ず主線。下端に破線・半端線を絶対に残さない。
+  // ========== 2本: A/B罫 ==========
   if (isSimpleTwo) {
     const style = (typeof valueOf === 'function') ? valueOf('noteRuleStyle', 'A') : 'A';
-    let gapMin = style === 'B' ? (isLandscape ? 14 : 11) : (isLandscape ? 18 : 14);
-    let gap = Math.max(gapMin, Math.min(style === 'B' ? 16 : 22, h * (style === 'B' ? 0.022 : 0.03)));
+    let gapMin = style === 'B' ? (isLandscape ? 13 : 11) : (isLandscape ? 17 : 14);
+    let gap = Math.max(gapMin, Math.min(style === 'B' ? 15 : 20, h * (style === 'B' ? 0.02 : 0.028)));
 
-    // 下端に十分な余白を残す（破線が最終になって見えないように）
-    const BOTTOM_SAFE_2 = Math.max(BOTTOM_SAFE, 6);
-    const safeH = Math.max(40, usableH - BOTTOM_SAFE_2);
-    let lineCount = Math.max(2, Math.floor(safeH / gap) + 1);
-    while (lineCount > 2 && (lineCount - 1) * gap > safeH) lineCount--;
-    if (lineCount > 1) gap = safeH / (lineCount - 1);
+    const availH = SAFE_BOTTOM - contentTop;
+    let lineCount = Math.max(2, Math.floor(availH / gap) + 1);
+    while (lineCount > 2 && (lineCount - 1) * gap > availH) lineCount--;
+    if (lineCount > 1) gap = availH / (lineCount - 1);
     if (gap < gapMin) {
       gap = gapMin;
-      lineCount = Math.max(2, Math.floor(safeH / gap) + 1);
-      while (lineCount > 2 && (lineCount - 1) * gap > safeH) lineCount--;
+      lineCount = Math.max(2, Math.floor(availH / gap) + 1);
+      while (lineCount > 2 && (lineCount - 1) * gap > availH) lineCount--;
     }
 
-    const totalH = (lineCount - 1) * gap;
-    let y0 = contentTop + Math.max(0, (safeH - totalH) * 0.03);
-    if (y0 + (lineCount - 1) * gap > contentBottom - BOTTOM_SAFE_2) {
-      y0 = Math.max(contentTop, contentBottom - BOTTOM_SAFE_2 - (lineCount - 1) * gap);
-    }
-
-    // まず主線の位置だけ確定させる（破線は後で主線の間にだけ）
-    const baselines = [];
+    // 主線の y を確定（SAFE_BOTTOM を超えないものだけ）
+    const mains = [];
     for (let i = 0; i < lineCount; i++) {
-      const y = y0 + i * gap;
-      if (y > contentBottom - BOTTOM_SAFE_2) break;
-      baselines.push(y);
-    }
-    // 主線を描画
-    baselines.forEach(y => drawSolid(y, false));
-    // 破線は「隣り合う主線の間」にだけ。最終主線の後ろには絶対に引かない
-    for (let i = 0; i < baselines.length - 1; i++) {
-      const mid = (baselines[i] + baselines[i + 1]) / 2;
-      if (mid < contentBottom - BOTTOM_SAFE_2 - 1) drawDash(mid);
+      const y = contentTop + i * gap;
+      if (y > SAFE_BOTTOM) break;
+      mains.push(y);
     }
 
-    if (practiceRows.length && baselines.length >= 2) {
-      // 文字は上側の主線付近（インデックス1から）に置くのが自然
+    // 主線を描画
+    mains.forEach(y => drawSolid(y, false));
+
+    // 破線は主線と主線の「間」にだけ
+    for (let i = 0; i < mains.length - 1; i++) {
+      const mid = (mains[i] + mains[i + 1]) / 2;
+      if (mid <= SAFE_BOTTOM) drawDash(mid);
+    }
+
+    // 文字配置（上から2本目以降を使う）
+    if (practiceRows.length && mains.length >= 2) {
       let bi = 1;
-      for (let r = 0; r < practiceRows.length && bi < baselines.length; r++) {
+      for (let r = 0; r < practiceRows.length && bi < mains.length; r++) {
         let units = practiceRows[r].units.slice();
         const type = practiceRows[r].type;
         if (type === 'blank') { bi++; continue; }
-        while (units.length && bi < baselines.length) {
-          units = drawTextOnBaseline(baselines[bi], gap * 0.9, type, units);
+        while (units.length && bi < mains.length) {
+          units = drawTextOnBaseline(mains[bi], gap * 0.9, type, units);
           bi++;
         }
       }
@@ -220,88 +187,70 @@ function renderRuledNote() {
   }
 
   // ========== 3〜5本: まとまり方式 ==========
-  // ★ 完結した組だけ。下端に半端な線・孤立線を絶対に出さない。
-  let innerGap = Math.max(5, Math.min(9, fontPx * 0.3));
-  const betweenMin = Math.max(innerGap * 2.2, fontPx * 1.0, isLandscape ? 18 : 16);
+  let innerGap = Math.max(5, Math.min(9, fontPx * 0.28));
+  const betweenMin = Math.max(innerGap * 2.0, fontPx * 0.95, isLandscape ? 16 : 14);
   let groupHeight = innerGap * (linesPerGroup - 1);
 
-  const minGroupSpan = Math.max(groupHeight, fontPx * 1.05);
-  if (minGroupSpan > groupHeight) {
-    innerGap = Math.max(innerGap, minGroupSpan / Math.max(1, linesPerGroup - 1));
+  if (groupHeight < fontPx * 1.0) {
+    innerGap = Math.max(innerGap, (fontPx * 1.0) / Math.max(1, linesPerGroup - 1));
     groupHeight = innerGap * (linesPerGroup - 1);
   }
 
-  // 5本組は特に下端余白を多めに取る
-  const BOTTOM_SAFE_G = Math.max(BOTTOM_SAFE, 8);
-  const safeH = Math.max(40, usableH - BOTTOM_SAFE_G);
+  const availH = SAFE_BOTTOM - contentTop;
 
-  // 完結した組だけ（groupHeight 分が収まる数）
+  // 完結した組だけ数える
   let groupCount = 0;
-  let between = betweenMin;
   {
     let used = 0;
     while (true) {
       const need = (groupCount === 0) ? groupHeight : (betweenMin + groupHeight);
-      if (used + need > safeH + 0.01) break;
+      if (used + need > availH) break;
       used += need;
       groupCount++;
-      if (groupCount > 40) break;
+      if (groupCount > 30) break;
     }
-    groupCount = Math.max(1, groupCount);
   }
+  groupCount = Math.max(1, groupCount);
 
+  let between = betweenMin;
   if (groupCount > 1) {
-    between = (safeH - groupCount * groupHeight) / (groupCount - 1);
-    while (groupCount > 1) {
-      between = (safeH - groupCount * groupHeight) / (groupCount - 1);
-      const th = groupCount * groupHeight + (groupCount - 1) * between;
-      if (between >= betweenMin * 0.85 && th <= safeH + 0.5) break;
+    between = (availH - groupCount * groupHeight) / (groupCount - 1);
+    while (groupCount > 1 && between < betweenMin * 0.9) {
       groupCount--;
+      between = groupCount > 1 ? (availH - groupCount * groupHeight) / (groupCount - 1) : betweenMin;
     }
-    between = groupCount > 1
-      ? (safeH - groupCount * groupHeight) / (groupCount - 1)
-      : betweenMin;
   }
 
-  const totalH2 = groupCount * groupHeight + Math.max(0, groupCount - 1) * between;
-  let yBase = contentTop + Math.max(0, (safeH - totalH2) * 0.04);
-
-  // 最終組の最終線がセーフゾーンを超えないことを保証
+  // 最終確認：最終組の最終線が SAFE_BOTTOM を超えない
   while (groupCount >= 1) {
-    const lastLine = yBase + (groupCount - 1) * (groupHeight + between) + (linesPerGroup - 1) * innerGap;
-    if (lastLine <= contentBottom - BOTTOM_SAFE_G) break;
-    if (groupCount === 1) {
-      yBase = Math.max(contentTop, contentBottom - BOTTOM_SAFE_G - (linesPerGroup - 1) * innerGap);
-      break;
-    }
+    const lastY = contentTop + (groupCount - 1) * (groupHeight + between) + (linesPerGroup - 1) * innerGap;
+    if (lastY <= SAFE_BOTTOM) break;
     groupCount--;
-    between = groupCount > 1
-      ? (safeH - groupCount * groupHeight) / (groupCount - 1)
-      : betweenMin;
-    const th = groupCount * groupHeight + Math.max(0, groupCount - 1) * between;
-    yBase = contentTop + Math.max(0, (safeH - th) * 0.04);
-  }
-
-  let colorFromBottom = Math.max(0, Math.min(linesPerGroup, (st.note && st.note.colorLineNo) || 0));
-  const groupTops = [];
-  for (let g = 0; g < groupCount; g++) {
-    let groupTop = yBase + g * (groupHeight + between);
-    // この組の全線がセーフゾーン内に収まるか最終確認
-    const groupLast = groupTop + (linesPerGroup - 1) * innerGap;
-    if (groupLast > contentBottom - BOTTOM_SAFE_G) {
-      // この組は描かない（前の組で終了）
-      break;
+    if (groupCount > 1) {
+      between = (availH - groupCount * groupHeight) / (groupCount - 1);
     }
+  }
+  groupCount = Math.max(1, groupCount);
+
+  const colorFromBottom = Math.max(0, Math.min(linesPerGroup, (st.note && st.note.colorLineNo) || 0));
+  const groupTops = [];
+
+  for (let g = 0; g < groupCount; g++) {
+    const groupTop = contentTop + g * (groupHeight + between);
+    const groupLast = groupTop + (linesPerGroup - 1) * innerGap;
+    if (groupLast > SAFE_BOTTOM) break; // この組は描かない
+
     groupTops.push(groupTop);
     for (let i = 0; i < linesPerGroup; i++) {
       const y = groupTop + i * innerGap;
-      if (y > contentBottom - BOTTOM_SAFE_G) break;
+      if (y > SAFE_BOTTOM) break;
       const fromBottom = linesPerGroup - i;
       const isAccent = colorFromBottom > 0 && fromBottom === colorFromBottom;
       drawSolid(y, isAccent);
     }
   }
 
+  // 文字配置
   let gi = 0;
   const actualGroups = groupTops.length;
   for (let r = 0; r < practiceRows.length && gi < actualGroups; r++) {
