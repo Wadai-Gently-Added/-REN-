@@ -121,6 +121,7 @@ function onModeChange() {
   const mode = byId('paperMode').value;
   byId('modeShapeBox').innerHTML = (SHAPE_HTML[mode] || SHAPE_HTML['a4-grid'])();
   setAvailability();
+  if (typeof updateNoteColorUI === 'function') updateNoteColorUI();
   render();
 }
 

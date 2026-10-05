@@ -1,8 +1,8 @@
 /*
- * 罫線ノート v3.5.26
- * 方針：使える高さを「1組の高さ＋組間」で割り、
- *       割り切れた完全な組だけを上から並べる。
- *       あまりは全部下の余白にする（半端な線は絶対に出さない）。
+ * 罫線ノート v3.5.27
+ * - 組数をしっかり確保して複数練習セットが表示されるように修正
+ * - 色付き基準線を「下からN本目」に正確に配置
+ * - 半端な線は出さない
  */
 function notePracticeFont() {
   return window.__practiceFontFamily || "'Yu Mincho', 'Hiragino Mincho ProN', 'MS Mincho', serif";
@@ -44,13 +44,13 @@ function renderRuledNote() {
   if (h < 10) h = area.clientHeight || 720;
 
   const isLandscape = (st.orientation === 'landscape');
-  const padX = Math.max(8, w * 0.018);
-  const padY = Math.max(12, h * 0.028);
-  const titleH = 20;
+  const padX = Math.max(6, w * 0.015);
+  const padY = Math.max(8, h * 0.02);
+  const titleH = 16;
   const usableW = Math.max(80, w - padX * 2);
   const contentTop = padY + titleH;
   const contentBottom = h - padY;
-  const usableH = Math.max(40, contentBottom - contentTop);
+  const usableH = Math.max(60, contentBottom - contentTop);
 
   const linesPerGroup = Math.max(2, Math.min(5, n));
   const isSimpleTwo = (linesPerGroup === 2);
@@ -62,6 +62,7 @@ function renderRuledNote() {
   let types = (typeof getTypes === 'function') ? getTypes().slice() : ['blackSample', 'grayFull', 'blank'];
   if (!types.length) types = ['blackSample', 'grayFull', 'blank'];
 
+  // 練習セット × 入力行 = 表示する練習行のリスト
   const practiceRows = [];
   if (textLines.length) {
     types.forEach(t => {
@@ -72,7 +73,7 @@ function renderRuledNote() {
   }
 
   function drawSolid(y, isAccent) {
-    if (y < contentTop - 0.5 || y > contentBottom - 2) return;
+    if (y < contentTop - 0.5 || y > contentBottom - 3) return;
     const el = document.createElement('div');
     el.style.cssText =
       'position:absolute;left:' + Math.round(padX) + 'px;top:' + Math.round(y) + 'px;' +
@@ -83,7 +84,7 @@ function renderRuledNote() {
   }
 
   function drawDash(y) {
-    if (y < contentTop - 0.5 || y > contentBottom - 2) return;
+    if (y < contentTop - 0.5 || y > contentBottom - 3) return;
     const el = document.createElement('div');
     el.style.cssText =
       'position:absolute;left:' + Math.round(padX) + 'px;top:' + Math.round(y) + 'px;' +
@@ -92,7 +93,6 @@ function renderRuledNote() {
     area.appendChild(el);
   }
 
-  // 実測文字幅
   const measureCanvas = document.createElement('canvas');
   const measureCtx = measureCanvas.getContext('2d');
   function measureUnitWidth(unit, fs) {
@@ -134,21 +134,11 @@ function renderRuledNote() {
   if (isSimpleTwo) {
     const style = (typeof valueOf === 'function') ? valueOf('noteRuleStyle', 'A') : 'A';
     const gapMin = style === 'B' ? (isLandscape ? 11 : 12) : (isLandscape ? 14 : 15);
-    let gap = Math.max(gapMin, Math.min(style === 'B' ? 13 : 18, usableH * 0.032));
+    let gap = Math.max(gapMin, Math.min(style === 'B' ? 13 : 18, usableH * 0.03));
 
-    // 割り切れる本数だけ
-    let lineCount = Math.floor(usableH / gap) + 1;
-    if (lineCount < 2) lineCount = 2;
-    // 最終線がはみ出ないように調整
-    while (lineCount > 2 && (lineCount - 1) * gap > usableH) {
-      lineCount--;
-    }
-    // あまりが出るように gap を再計算（最終線を contentBottom 近くに持ってこない）
-    if (lineCount > 1) {
-      gap = usableH / (lineCount - 1);
-      // 少しだけ縮めて下に余白を作る
-      gap = gap * 0.97;
-    }
+    let lineCount = Math.max(2, Math.floor(usableH / gap) + 1);
+    while (lineCount > 2 && (lineCount - 1) * gap > usableH * 0.98) lineCount--;
+    if (lineCount > 1) gap = (usableH * 0.97) / (lineCount - 1);
 
     const mains = [];
     for (let i = 0; i < lineCount; i++) {
@@ -156,7 +146,6 @@ function renderRuledNote() {
       if (y > contentBottom - 4) break;
       mains.push(y);
     }
-
     mains.forEach(y => drawSolid(y, false));
     for (let i = 0; i < mains.length - 1; i++) {
       drawDash((mains[i] + mains[i + 1]) / 2);
@@ -178,50 +167,43 @@ function renderRuledNote() {
   }
 
   // ========== 3〜5本組 ==========
-  // 1組の高さ（線の本数に応じた固定）
-  let innerGap = Math.max(5.5, Math.min(8.5, fontPx * 0.28));
+  // 組の高さをコンパクトにして、複数組が確実に入るようにする
+  let innerGap = Math.max(5, Math.min(7.5, fontPx * 0.26));
   let groupHeight = innerGap * (linesPerGroup - 1);
 
-  // 組間の最小値
-  const betweenMin = Math.max(groupHeight * 0.7, fontPx * 0.85, isLandscape ? 14 : 12);
+  // 組間（縦向きの方が少し狭くして組数を稼ぐ）
+  const betweenMin = Math.max(groupHeight * 0.55, fontPx * 0.7, isLandscape ? 12 : 10);
 
-  // ★ 核心：使える高さを「組高さ＋組間」で割って、割り切れた数だけ取る
-  // 最初の組は between が不要なので、計算を工夫する
-  let groupCount = 0;
-  {
-    // まず最大候補を出す
-    let candidate = Math.floor((usableH + betweenMin) / (groupHeight + betweenMin));
-    if (candidate < 1) candidate = 1;
-
-    // 実際に収まるか確認しながら減らす
-    while (candidate >= 1) {
-      const total = candidate * groupHeight + Math.max(0, candidate - 1) * betweenMin;
-      if (total <= usableH) {
-        groupCount = candidate;
-        break;
-      }
-      candidate--;
-    }
-  }
+  // 最大で入る組数を計算（割り切れ分だけ）
+  let groupCount = Math.floor((usableH + betweenMin) / (groupHeight + betweenMin));
   if (groupCount < 1) groupCount = 1;
+  // 上限（ページが極端に長い場合の保険）
+  if (groupCount > 20) groupCount = 20;
 
-  // 余った高さを組間に分配（ただし広げすぎない）
+  // 実際に収まるか確認して調整
+  while (groupCount > 1) {
+    const total = groupCount * groupHeight + (groupCount - 1) * betweenMin;
+    if (total <= usableH) break;
+    groupCount--;
+  }
+
+  // 余白を組間に分配
   let between = betweenMin;
   if (groupCount > 1) {
     const leftover = usableH - groupCount * groupHeight;
-    between = leftover / (groupCount - 1);
-    // 広げすぎ防止
-    if (between > betweenMin * 1.8) between = betweenMin * 1.8;
+    between = Math.max(betweenMin, leftover / (groupCount - 1));
+    // 広げすぎない
+    if (between > betweenMin * 2.2) between = betweenMin * 2.2;
   }
 
-  // 最終チェック：最終線が contentBottom を超えないこと
+  // 最終線がはみ出ない最終チェック
   while (groupCount >= 1) {
     const lastY = contentTop + (groupCount - 1) * (groupHeight + between) + (linesPerGroup - 1) * innerGap;
-    if (lastY <= contentBottom - 6) break;
+    if (lastY <= contentBottom - 5) break;
     groupCount--;
     if (groupCount > 1) {
       const leftover = usableH - groupCount * groupHeight;
-      between = leftover / (groupCount - 1);
+      between = Math.max(betweenMin, leftover / (groupCount - 1));
     }
   }
   if (groupCount < 1) groupCount = 1;
@@ -232,35 +214,43 @@ function renderRuledNote() {
   for (let g = 0; g < groupCount; g++) {
     const groupTop = contentTop + g * (groupHeight + between);
     const groupLast = groupTop + (linesPerGroup - 1) * innerGap;
-
-    // この組が完全に収まる場合だけ描く
-    if (groupLast > contentBottom - 6) break;
+    if (groupLast > contentBottom - 5) break;
 
     groupTops.push(groupTop);
     for (let i = 0; i < linesPerGroup; i++) {
       const y = groupTop + i * innerGap;
+      // fromBottom: 一番下が1、その上が2 …
       const fromBottom = linesPerGroup - i;
-      const isAccent = colorFromBottom > 0 && fromBottom === colorFromBottom;
+      const isAccent = (colorFromBottom > 0 && fromBottom === colorFromBottom);
       drawSolid(y, isAccent);
     }
   }
 
-  // 文字配置
+  // 文字配置：練習セットを順番に組に割り当てる
+  // blank も1組消費する（空の練習枠として線だけ残る）
   let gi = 0;
   const actualGroups = groupTops.length;
   for (let r = 0; r < practiceRows.length && gi < actualGroups; r++) {
-    let units = practiceRows[r].units.slice();
     const type = practiceRows[r].type;
-    if (type === 'blank') { gi++; continue; }
+    let units = practiceRows[r].units.slice();
+
+    if (type === 'blank') {
+      gi++; // 空枠として組を1つ消費
+      continue;
+    }
+
+    // この練習行を現在の組に置く。入りきらなければ次の組へ
     while (units.length && gi < actualGroups) {
       const groupTop = groupTops[gi];
       let lineY, maxAscent;
       if (colorFromBottom > 0) {
+        // 下から colorFromBottom 本目の線に文字を乗せる
         const idxFromTop = linesPerGroup - colorFromBottom;
         lineY = groupTop + idxFromTop * innerGap;
-        maxAscent = Math.max(innerGap * Math.max(1, colorFromBottom - 0.2), fontPx);
+        maxAscent = Math.max(innerGap * Math.max(1, colorFromBottom - 0.15), fontPx);
       } else {
-        lineY = groupTop + groupHeight * 0.6;
+        // 色線なしのときは組のやや下寄り
+        lineY = groupTop + groupHeight * 0.65;
         maxAscent = Math.max(groupHeight * 0.55, fontPx);
       }
       units = drawTextOnBaseline(lineY, maxAscent, type, units);
