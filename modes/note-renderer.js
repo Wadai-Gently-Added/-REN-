@@ -1,8 +1,8 @@
 /*
- * 罫線ノート v3.5.28
- * - 組数を確実に複数確保（一行しか出ない問題を修正）
- * - 色付き線「なし」のときは組の中央に文字を配置
- * - 色付き線ありのときは下からN本目に配置
+ * 罫線ノート v3.5.29
+ * 方針変更：高さ計算に頼らず、ページを均等分割して複数組を必ず描く
+ * - 色付き線「なし」→ 組の中央に文字
+ * - 色付き線あり → 下からN本目に文字
  */
 function notePracticeFont() {
   return window.__practiceFontFamily || "'Yu Mincho', 'Hiragino Mincho ProN', 'MS Mincho', serif";
@@ -38,29 +38,30 @@ function renderRuledNote() {
   area.style.cssText = 'width:100%;height:100%;position:relative;overflow:hidden;background:#fff;';
   canvas.appendChild(area);
 
-  // ページ寸法：明示的にセットされた style も見る
-  let w = paper ? (parseFloat(paper.style.width) || paper.clientWidth || 0) : 0;
-  let h = paper ? (parseFloat(paper.style.height) || paper.clientHeight || 0) : 0;
-  if (w < 10) w = area.clientWidth || 520;
-  if (h < 10) h = area.clientHeight || 720;
+  // 寸法取得（複数経路）
+  let w = 0, h = 0;
+  if (paper) {
+    w = parseFloat(paper.style.width) || paper.clientWidth || paper.offsetWidth || 0;
+    h = parseFloat(paper.style.height) || paper.clientHeight || paper.offsetHeight || 0;
+  }
+  if (w < 50) w = area.clientWidth || 400;
+  if (h < 50) h = area.clientHeight || 560;
 
   const isLandscape = (st.orientation === 'landscape');
-  const padX = Math.max(6, w * 0.015);
-  const padY = Math.max(6, h * 0.015);
-  const titleH = 14;
-  const usableW = Math.max(80, w - padX * 2);
-  const contentTop = padY + titleH;
-  const contentBottom = h - padY;
-  let usableH = Math.max(80, contentBottom - contentTop);
-
-  // 保険：usableH が異常に小さい場合は最低高さを確保
-  if (usableH < 200) usableH = Math.max(usableH, h * 0.75);
+  const padX = Math.max(8, Math.round(w * 0.02));
+  const padTop = Math.max(10, Math.round(h * 0.025));
+  const padBot = Math.max(12, Math.round(h * 0.03));
+  const titleH = 16;
+  const usableW = Math.max(100, w - padX * 2);
+  const contentTop = padTop + titleH;
+  const contentBottom = h - padBot;
+  const usableH = Math.max(120, contentBottom - contentTop);
 
   const linesPerGroup = Math.max(2, Math.min(5, n));
   const isSimpleTwo = (linesPerGroup === 2);
   const fontPx = Math.max(12, Math.min(34, st.fontSizePx || 24));
   const LINE_W = 0.9;
-  const colorLine = (st.note && st.note.colorLine) || 'var(--note-accent, #c45c6a)';
+  const colorLine = (st.note && st.note.colorLine) || '#c45c6a';
 
   const textLines = noteTextLines();
   let types = (typeof getTypes === 'function') ? getTypes().slice() : ['blackSample', 'grayFull', 'blank'];
@@ -76,23 +77,23 @@ function renderRuledNote() {
   }
 
   function drawSolid(y, isAccent) {
-    if (y < contentTop - 0.5 || y > contentBottom - 2) return;
+    if (y < contentTop - 1 || y > contentBottom - 1) return;
     const el = document.createElement('div');
     el.style.cssText =
       'position:absolute;left:' + Math.round(padX) + 'px;top:' + Math.round(y) + 'px;' +
       'width:' + Math.round(usableW) + 'px;height:' + LINE_W + 'px;' +
-      'background:' + (isAccent ? colorLine : 'var(--line-main, rgba(184,148,148,0.62))') + ';' +
+      'background:' + (isAccent ? colorLine : 'rgba(184,148,148,0.62)') + ';' +
       'pointer-events:none;';
     area.appendChild(el);
   }
 
   function drawDash(y) {
-    if (y < contentTop - 0.5 || y > contentBottom - 2) return;
+    if (y < contentTop - 1 || y > contentBottom - 1) return;
     const el = document.createElement('div');
     el.style.cssText =
       'position:absolute;left:' + Math.round(padX) + 'px;top:' + Math.round(y) + 'px;' +
       'width:' + Math.round(usableW) + 'px;height:0;' +
-      'border-top:1px dashed rgba(184,148,148,0.3);pointer-events:none;';
+      'border-top:1px dashed rgba(184,148,148,0.32);pointer-events:none;';
     area.appendChild(el);
   }
 
@@ -108,8 +109,8 @@ function renderRuledNote() {
     if (!units || !units.length || type === 'blank') return [];
     const isModel = (type === 'blackSample');
     const color = isModel ? '#333' : 'rgba(170,170,170,0.92)';
-    const fs = Math.min(fontPx, Math.max(11, maxAscent * 0.85));
-    let x = padX + 2;
+    const fs = Math.min(fontPx, Math.max(11, maxAscent * 0.82));
+    let x = padX + 3;
     const rightLimit = padX + usableW - 6;
     let i = 0;
     for (; i < units.length; i++) {
@@ -136,17 +137,16 @@ function renderRuledNote() {
   // ========== 2本: A/B罫 ==========
   if (isSimpleTwo) {
     const style = (typeof valueOf === 'function') ? valueOf('noteRuleStyle', 'A') : 'A';
-    const gapMin = style === 'B' ? (isLandscape ? 11 : 12) : (isLandscape ? 14 : 15);
-    let gap = Math.max(gapMin, Math.min(style === 'B' ? 13 : 18, usableH * 0.03));
-
-    let lineCount = Math.max(2, Math.floor(usableH / gap) + 1);
-    while (lineCount > 2 && (lineCount - 1) * gap > usableH * 0.98) lineCount--;
-    if (lineCount > 1) gap = (usableH * 0.96) / (lineCount - 1);
+    const gapMin = style === 'B' ? 11 : 14;
+    // 均等分割で行数を決める
+    let lineCount = Math.max(4, Math.floor(usableH / (gapMin + 2)));
+    if (lineCount > 30) lineCount = 30;
+    const gap = usableH / Math.max(1, lineCount - 1);
 
     const mains = [];
     for (let i = 0; i < lineCount; i++) {
       const y = contentTop + i * gap;
-      if (y > contentBottom - 3) break;
+      if (y > contentBottom - 2) break;
       mains.push(y);
     }
     mains.forEach(y => drawSolid(y, false));
@@ -161,7 +161,7 @@ function renderRuledNote() {
         const type = practiceRows[r].type;
         if (type === 'blank') { bi++; continue; }
         while (units.length && bi < mains.length) {
-          units = drawTextOnBaseline(mains[bi], gap * 0.9, type, units);
+          units = drawTextOnBaseline(mains[bi], gap * 0.88, type, units);
           bi++;
         }
       }
@@ -170,54 +170,58 @@ function renderRuledNote() {
   }
 
   // ========== 3〜5本組 ==========
-  // 組の高さをコンパクトに
-  let innerGap = Math.max(4.5, Math.min(7, fontPx * 0.24));
-  let groupHeight = innerGap * (linesPerGroup - 1);
+  // 組内の線間隔
+  const innerGap = Math.max(5, Math.min(7.5, fontPx * 0.26));
+  const groupHeight = innerGap * (linesPerGroup - 1);
 
-  // 組間
-  const betweenMin = Math.max(groupHeight * 0.5, fontPx * 0.65, isLandscape ? 11 : 9);
+  // ★ 方針：練習セット数を最低限確保しつつ、ページを埋める組数を決める
+  const minGroups = Math.max(practiceRows.length, isLandscape ? 5 : 8);
+  let groupCount = minGroups;
 
-  // 最大組数（多めに取る）
-  let groupCount = Math.floor((usableH + betweenMin) / (groupHeight + betweenMin));
-  if (groupCount < 1) groupCount = 1;
-  if (groupCount > 18) groupCount = 18;
-
-  // 収まるまで減らす
-  while (groupCount > 1) {
-    const total = groupCount * groupHeight + (groupCount - 1) * betweenMin;
-    if (total <= usableH) break;
-    groupCount--;
-  }
-
-  // 余白を組間に分配
-  let between = betweenMin;
+  // 組間を均等に分配
+  // 総高さ = groupCount * groupHeight + (groupCount-1) * between
+  // usableH に収まる between を計算
+  let between = 14;
   if (groupCount > 1) {
-    const leftover = usableH - groupCount * groupHeight;
-    between = Math.max(betweenMin, leftover / (groupCount - 1));
-    if (between > betweenMin * 2.5) between = betweenMin * 2.5;
+    between = (usableH - groupCount * groupHeight) / (groupCount - 1);
   }
 
-  // 最終線チェック
+  // between が狭すぎたら組数を減らす
+  const betweenFloor = Math.max(8, groupHeight * 0.4);
+  while (groupCount > 1 && between < betweenFloor) {
+    groupCount--;
+    between = groupCount > 1 ? (usableH - groupCount * groupHeight) / (groupCount - 1) : betweenFloor;
+  }
+
+  // between が広すぎたら組数を増やせるだけ増やす
+  const betweenCeil = Math.max(betweenFloor * 2.5, 28);
+  while (between > betweenCeil) {
+    const next = groupCount + 1;
+    const nextBetween = (usableH - next * groupHeight) / Math.max(1, next - 1);
+    if (nextBetween < betweenFloor) break;
+    groupCount = next;
+    between = nextBetween;
+    if (groupCount > 16) break;
+  }
+
+  // 最終確認：最終線がはみ出ない
   while (groupCount >= 1) {
-    const lastY = contentTop + (groupCount - 1) * (groupHeight + between) + (linesPerGroup - 1) * innerGap;
-    if (lastY <= contentBottom - 4) break;
+    const lastY = contentTop + (groupCount - 1) * (groupHeight + between) + groupHeight;
+    if (lastY <= contentBottom - 3) break;
     groupCount--;
     if (groupCount > 1) {
-      const leftover = usableH - groupCount * groupHeight;
-      between = Math.max(betweenMin, leftover / (groupCount - 1));
+      between = (usableH - groupCount * groupHeight) / (groupCount - 1);
     }
   }
   if (groupCount < 1) groupCount = 1;
 
-  // 練習行数より組数が少ない場合でも、線だけはできるだけ多く描く
-  // （練習セットが少なくてもページを埋める）
   const colorFromBottom = Math.max(0, Math.min(linesPerGroup, (st.note && st.note.colorLineNo) || 0));
   const groupTops = [];
 
   for (let g = 0; g < groupCount; g++) {
     const groupTop = contentTop + g * (groupHeight + between);
-    const groupLast = groupTop + (linesPerGroup - 1) * innerGap;
-    if (groupLast > contentBottom - 4) break;
+    const groupLast = groupTop + groupHeight;
+    if (groupLast > contentBottom - 2) break;
 
     groupTops.push(groupTop);
     for (let i = 0; i < linesPerGroup; i++) {
@@ -248,11 +252,11 @@ function renderRuledNote() {
         // 下から N 本目
         const idxFromTop = linesPerGroup - colorFromBottom;
         lineY = groupTop + idxFromTop * innerGap;
-        maxAscent = Math.max(innerGap * Math.max(1, colorFromBottom - 0.15), fontPx);
+        maxAscent = Math.max(innerGap * 1.2, fontPx);
       } else {
-        // ★「なし」のときは組の中央
+        // 「なし」→ 組の中央
         lineY = groupTop + groupHeight * 0.5;
-        maxAscent = Math.max(groupHeight * 0.5, fontPx);
+        maxAscent = Math.max(groupHeight * 0.55, fontPx);
       }
       units = drawTextOnBaseline(lineY, maxAscent, type, units);
       gi++;
